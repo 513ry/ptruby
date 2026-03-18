@@ -5271,6 +5271,31 @@ arg_ambiguous(parser_state *p)
   return 1;
 }
 
+static int32_t
+parser_magic_comment(parser_state *p)
+{
+  int32_t c;
+  if ((c = nextc(p)) == '@') {
+    char fname[256];
+    size_t i = 0;
+    if ((c = nextc(p)) == ' ')
+      c = nextc(p);
+    do {
+      fname[i++] = (char)c;
+    } while ((c = nextc(p)) != '\n' && c != -1);
+    fname[i] = '\0';
+    p->mfiles[p->nmfiles] = parser_strdup(p, fname);
+    ++p->nmfiles;
+    if (c == '\n')
+      p->lineno++;
+  } else {
+    pushback(p, c);
+    skip(p, '\n');
+  }
+
+  return c;
+}
+
 #include "lex.def"
 
 static int
@@ -5311,7 +5336,11 @@ parser_yylex(parser_state *p)
     goto retry;
 
   case '#':     /* it's a comment */
+#ifndef MRB_NO_STDIO
+    c = parser_magic_comment(p);
+#else
     skip(p, '\n');
+#endif
     /* fall through */
   case -2:      /* end of a file */
   case '\n':
@@ -6720,6 +6749,8 @@ mrb_parser_new(mrb_state *mrb)
   p->filename_table = NULL;
   p->filename_table_length = 0;
 
+  p->nmfiles = 0;
+
   return p;
 }
 
@@ -6879,6 +6910,7 @@ mrb_load_exec(mrb_state *mrb, struct mrb_parser_state *p, mrb_ccontext *c)
   if (!p) {
     return mrb_undef_value();
   }
+
   if (!p->tree || p->nerr) {
     if (c) c->parser_nerr = p->nerr;
     if (p->capture_errors) {
@@ -6900,7 +6932,28 @@ mrb_load_exec(mrb_state *mrb, struct mrb_parser_state *p, mrb_ccontext *c)
       return mrb_undef_value();
     }
   }
+
+#ifndef MRB_NO_STDIO
+  const uint8_t nfiles = p->nmfiles;
+  for (uint8_t i = 0; i < nfiles; ++i) {
+    const char *fname = p->mfiles[i];
+    --p->nmfiles;
+    FILE *sf = fopen(fname, "r");
+
+    struct mrb_parser_state *mp = mrb_parse_file(mrb, sf, c);
+
+    if (mp && mp->nerr == 0) {
+      struct RProc *mproc = mrb_generate_code(mrb, mp);
+      if (mproc) {
+	mrb_top_run(mrb, mproc, mrb_top_self(mrb), 0);
+      }
+    }
+    mrb_parser_free(mp);
+  }
+#endif
+
   proc = mrb_generate_code(mrb, p);
+
   mrb_parser_free(p);
   if (proc == NULL) {
     if (mrb->exc == NULL) {
@@ -6925,6 +6978,7 @@ mrb_load_exec(mrb_state *mrb, struct mrb_parser_state *p, mrb_ccontext *c)
   if (mrb->c->ci) {
     mrb_vm_ci_target_class_set(mrb->c->ci, target);
   }
+
   v = mrb_top_run(mrb, proc, mrb_top_self(mrb), keep);
   if (mrb->exc) return mrb_nil_value();
   return v;

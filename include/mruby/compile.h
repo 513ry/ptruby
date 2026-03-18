@@ -119,6 +119,7 @@ struct mrb_parser_heredoc_info {
 
 #define MRB_PARSER_TOKBUF_MAX (UINT16_MAX-1)
 #define MRB_PARSER_TOKBUF_SIZE 256
+#define MRB_PARSER_MAGIC_FILES_MAX 16
 
 /* parser structure */
 struct mrb_parser_state {
@@ -171,6 +172,9 @@ struct mrb_parser_state {
   mrb_sym* filename_table;
   uint16_t filename_table_length;
   uint16_t current_filename_index;
+
+  char *mfiles[MRB_PARSER_MAGIC_FILES_MAX];
+  uint8_t nmfiles;
 
   mrb_ast_node *nvars;
 };
