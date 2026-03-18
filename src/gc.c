@@ -406,7 +406,7 @@ MRB_API void
 mrb_gc_protect(mrb_state *mrb, mrb_value obj)
 {
   if (mrb_immediate_p(obj)) return;
-  void *p = mrb_basic_ptr(obj);
+  struct RBasic *p = mrb_basic_ptr(obj);
   gc_arena_keep(mrb, &mrb->gc);
   gc_protect(mrb, &mrb->gc, p);
 }
