@@ -120,6 +120,16 @@ struct mrb_parser_heredoc_info {
 #define MRB_PARSER_TOKBUF_MAX (UINT16_MAX-1)
 #define MRB_PARSER_TOKBUF_SIZE 256
 
+#ifndef MRB_NO_STDIO
+struct input_ctx {
+  FILE *f;
+  const char *s;
+  const char *send;
+  uint16_t lineno;
+  int column;
+};
+#endif
+
 /* parser structure */
 struct mrb_parser_state {
   mrb_state *mrb;
@@ -175,13 +185,7 @@ struct mrb_parser_state {
   mrb_ast_node *nvars;
 
 #ifndef MRB_NO_STDIO
-  struct input_ctx {
-    FILE *f;
-    const char *s;
-    const char *send;
-    uint16_t lineno;
-    int column;
-  } *input_stack;
+  struct input_ctx *input_stack;
 #endif
 };
 
