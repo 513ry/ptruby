@@ -1664,9 +1664,9 @@ program         :   {
                     }
                   top_compstmt
                     {
-                      p->tree = new_scope(p, $2);
-                      NODE_LINENO(p->tree, $2);
-                    }
+		      p->tree = new_scope(p, $2);
+		      NODE_LINENO(p->tree, $2);
+		    }
                 ;
 
 top_compstmt    : top_stmts opt_terms
@@ -1748,13 +1748,13 @@ stmts           : none
                     }
                 | stmt
                     {
-                      $$ = new_begin(p, $1);
-                      NODE_LINENO($$, $1);
-                    }
+		      $$ = new_begin(p, $1);
+		      NODE_LINENO($$, $1);
+		    }
                 | stmts terms stmt
-                    {
-                      $$ = push($1, newline_node($3));
-                    }
+		{
+		  $$ = push($1, newline_node($3));
+		}
                 | error stmt
                     {
                       $$ = new_begin(p, $2);
@@ -4371,6 +4371,15 @@ nextc(parser_state *p)
   return c;
 
   eof:
+  if (p->input_stack) {
+    p->f = p->input_stack->f;
+    p->s = p->input_stack->s;
+    p->send = p->input_stack->send;
+    p->lineno = p->input_stack->lineno;
+    p->column = p->input_stack->column;
+    p->input_stack = NULL;
+    return c;
+  }
   if (!p->cxt) return -1;
   else {
     if (p->cxt->partial_hook(p) < 0)
@@ -5271,29 +5280,53 @@ arg_ambiguous(parser_state *p)
   return 1;
 }
 
-static int32_t
+static uint8_t
 parser_magic_comment(parser_state *p)
 {
+#ifndef MRB_NO_STDIO
   int32_t c;
-  if ((c = nextc(p)) == '@') {
-    char fname[256];
-    size_t i = 0;
-    if ((c = nextc(p)) == ' ')
-      c = nextc(p);
-    do {
-      fname[i++] = (char)c;
-    } while ((c = nextc(p)) != '\n' && c != -1);
-    fname[i] = '\0';
-    p->mfiles[p->nmfiles] = parser_strdup(p, fname);
-    ++p->nmfiles;
-    if (c == '\n')
-      p->lineno++;
-  } else {
+  if ((c = nextc(p)) != '@') {
     pushback(p, c);
     skip(p, '\n');
+    return 0; // no magic
   }
 
-  return c;
+  char fn[256];
+  size_t i = 0;
+  /* skip optional space */
+  if ((c = nextc(p)) == ' ')
+    c = nextc(p);
+  while (c != '\n' && c != -1 && i < sizeof(fn) - 1) {
+    fn[i++] = (char)c;
+    c = nextc(p);
+  }
+  fn[i] = '\0';
+
+  FILE *f = fopen(fn, "r");
+  if (!f) {
+    yywarning_s(p, "cannot open magic file", fn);
+    return 0;
+  }
+  if (c == '\n') ++p->lineno;
+
+  struct input_ctx *ctx = mrb_malloc(p->mrb, sizeof(struct input_ctx));
+  ctx->f = p->f;
+  ctx->s = p->s;
+  ctx->send = p->send;
+  ctx->lineno = p->lineno;
+  ctx->column = p->column;
+  p->input_stack = ctx;
+  /* switch to new file */
+  p->f = f;
+  p->s = NULL;
+  p->send = NULL;
+  p->lineno = 1;
+  p->column = 0;
+
+  return 1;
+#else
+  return 0;
+#endif
 }
 
 #include "lex.def"
@@ -5336,12 +5369,9 @@ parser_yylex(parser_state *p)
     goto retry;
 
   case '#':     /* it's a comment */
-#ifndef MRB_NO_STDIO
-    c = parser_magic_comment(p);
-#else
-    skip(p, '\n');
-#endif
-    /* fall through */
+    if (parser_magic_comment(p))
+      goto retry;
+    /* let through */
   case -2:      /* end of a file */
   case '\n':
   maybe_heredoc:
@@ -6749,7 +6779,7 @@ mrb_parser_new(mrb_state *mrb)
   p->filename_table = NULL;
   p->filename_table_length = 0;
 
-  p->nmfiles = 0;
+  p->input_stack = NULL;
 
   return p;
 }
@@ -6932,25 +6962,6 @@ mrb_load_exec(mrb_state *mrb, struct mrb_parser_state *p, mrb_ccontext *c)
       return mrb_undef_value();
     }
   }
-
-#ifndef MRB_NO_STDIO
-  const uint8_t nfiles = p->nmfiles;
-  for (uint8_t i = 0; i < nfiles; ++i) {
-    const char *fname = p->mfiles[i];
-    --p->nmfiles;
-    FILE *sf = fopen(fname, "r");
-
-    struct mrb_parser_state *mp = mrb_parse_file(mrb, sf, c);
-
-    if (mp && mp->nerr == 0) {
-      struct RProc *mproc = mrb_generate_code(mrb, mp);
-      if (mproc) {
-	mrb_top_run(mrb, mproc, mrb_top_self(mrb), 0);
-      }
-    }
-    mrb_parser_free(mp);
-  }
-#endif
 
   proc = mrb_generate_code(mrb, p);
 
