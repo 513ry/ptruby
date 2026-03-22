@@ -5325,6 +5325,8 @@ parser_magic_comment(parser_state *p)
 
   return 1;
 #else
+  pushback(p, c);
+  skip(p, '\n');
   return 0;
 #endif
 }
