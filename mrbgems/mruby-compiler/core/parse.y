@@ -5309,7 +5309,7 @@ parser_magic_comment(parser_state *p)
   }
   if (c == '\n') ++p->lineno;
 
-  struct input_ctx *ctx = mrb_malloc(p->mrb, sizeof(struct input_ctx));
+  struct input_ctx *ctx = (struct input_ctx *)mrb_malloc(p->mrb, sizeof(struct input_ctx));
   ctx->f = p->f;
   ctx->s = p->s;
   ctx->send = p->send;
